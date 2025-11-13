@@ -40,7 +40,7 @@ ansible_user=root
   hosts: all
   become: true
   roles:
-    - setup-kuberntes-cluster
+    - k8s-cluster-with-ansible
 ```
 
 Executing the role to bootstrap kuberntes cluster
