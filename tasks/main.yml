@@ -120,7 +120,7 @@
   register: job_result
   until: job_result.finished
   retries: 100
-  delay: 5
+  delay: 15
 
 - name: Create .kube directory (Control Plane)
   become_user: root
