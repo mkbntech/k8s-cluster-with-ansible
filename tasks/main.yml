@@ -140,7 +140,7 @@
 
 - name: Install Pod network (Control Plane)
   become_user: root
-  ansible.builtin.shell: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/tigera-operator.yaml && kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/custom-resources.yaml >> pod_network_setup.txt
+  ansible.builtin.shell: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/calico.yaml >> pod_network_setup.txt
   args:
     chdir: $HOME
     creates: pod_network_setup.txt
