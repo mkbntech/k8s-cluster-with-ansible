@@ -5,11 +5,6 @@
     src: containerd_config_systemd.j2
     dest: /etc/containerd/config.toml
 
-- name: restart_containerd
-  ansible.builtin.systemd:
-    name: containerd
-    state: restarted
-
 - name: enable_containerd_on_boot
   ansible.builtin.systemd:
     name: containerd

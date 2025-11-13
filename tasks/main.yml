@@ -66,7 +66,6 @@
     src: containerd_config_systemd.j2
     dest: /etc/containerd/config.toml
   notify:
-    - restart_containerd
     - enable_containerd_on_boot
 
 - name: Install APT Transport HTTPS
@@ -172,15 +171,3 @@
     chdir: $HOME
     creates: node_joined.txt
   when: inventory_hostname in groups['workers']
-
-- name: Label worker node1
-  ansible.builtin.shell: kubectl label nodes worker-node1 kubernetes.io/role=worker --overwrite
-  when: inventory_hostname in groups['workers']
-  run_once: true
-  ignore_errors: true
-
-- name: Label worker node2
-  ansible.builtin.shell: kubectl label nodes worker-node2 kubernetes.io/role=worker --overwrite
-  when: inventory_hostname in groups['workers']
-  run_once: true
-  ignore_errors: true
