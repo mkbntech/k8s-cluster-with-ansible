@@ -1,0 +1,177 @@
+---
+- name: Disable swap for current session
+  ansible.builtin.command: swapoff -a
+
+- name: Disable swap permanently, persist reboots
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(\s*)([^#\n]+\s+)(\w+\s+)swap(\s+.*)$'
+    replace: '#\1\2\3swap\4'
+    backup: true
+
+- name: Load kernel modules
+  ansible.builtin.template:
+    src: containerd.conf.j2
+    dest: /etc/modules-load.d/containerd.conf
+
+- name: Reload overlay & br_netfilter modules
+  ansible.builtin.command: modprobe overlay
+
+- name: Reload overlay & br_netfilter
+  ansible.builtin.command: modprobe br_netfilter
+
+- name: Setup system level configurations
+  ansible.builtin.template:
+    src: kubernetes-cri.conf.j2
+    dest: /etc/sysctl.d/99-kubernetes-cri.conf
+
+- name: Reload system configuration
+  ansible.builtin.shell: sysctl --system
+
+- name: Update repositories cache and install "containerd" package
+  ansible.builtin.apt:
+    name: containerd
+    state: present
+    update_cache: true
+
+- name: Create a directory to store containerd configuration
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: '0755'
+
+- name: Check if containerd config file exists
+  ansible.builtin.stat:
+    path: /etc/containerd/config.toml
+  register: containerd_config
+
+- name: Generate default containerd config
+  ansible.builtin.command: 
+    cmd: containerd config default
+  register: containerd_default_config
+  when: not containerd_config.stat.exists
+  notify:
+    - update_containerd_config_to_use_systemd
+
+- name: Write containerd default config to file
+  ansible.builtin.copy:
+    dest: /etc/containerd/config.toml
+    content: "{{ containerd_default_config.stdout }}"
+  when: not containerd_config.stat.exists
+  notify:
+    - update_containerd_config_to_use_systemd
+
+- name: Update containerd config to use systemd as cgroup
+  ansible.builtin.template:
+    src: containerd_config_systemd.j2
+    dest: /etc/containerd/config.toml
+  notify:
+    - restart_containerd
+    - enable_containerd_on_boot
+
+- name: Install APT Transport HTTPS
+  ansible.builtin.apt:
+    name: apt-transport-https
+    state: present
+
+- name: Ensure the keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download and add Kubernetes APT keyring
+  ansible.builtin.shell: curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  args:
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: Add Kubernetes APT repository
+  ansible.builtin.lineinfile:
+    path: /etc/apt/sources.list.d/kubernetes.list
+    line: 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /'
+    create: true
+
+- name: Update APT package index
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install Kubernetes tools
+  ansible.builtin.apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+    install_recommends: false
+
+- name: Initialize the cluster (Control Plane)
+  ansible.builtin.shell: kubeadm init --apiserver-advertise-address=192.168.122.100 --pod-network-cidr 192.168.0.0/16 >> cluster_initialized.txt
+  when: inventory_hostname in groups['control_plane']
+  args:
+    chdir: $HOME
+    creates: cluster_initialized.txt
+  async: 100 
+  poll: 0
+  register: scrout
+
+- name: Check the job status (Control Plane)
+  ansible.builtin.async_status:
+    jid: "{{ scrout.ansible_job_id }}"
+  when: inventory_hostname in groups['control_plane']
+  register: job_result
+  until: job_result.finished
+  retries: 100
+  delay: 5
+
+- name: Create .kube directory (Control Plane)
+  become_user: root
+  ansible.builtin.file:
+    path: $HOME/.kube
+    state: directory
+    mode: 0755
+  when: inventory_hostname in groups['control_plane']
+
+- name: Copy admin.conf to user's kube config (Control Plane)
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /root/.kube/config
+    remote_src: true
+    owner: root
+  when: inventory_hostname in groups['control_plane']
+
+- name: Install Pod network (Control Plane)
+  become_user: root
+  ansible.builtin.shell: kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.25.0/manifests/calico.yaml >> pod_network_setup.txt
+  args:
+    chdir: $HOME
+    creates: pod_network_setup.txt
+  when: inventory_hostname in groups['control_plane']
+  retries: 5
+  delay: 10
+  register: result
+  until: result.rc == 0
+
+- name: Get join command (Control Plane)
+  ansible.builtin.shell: kubeadm token create --print-join-command
+  register: join_command_raw
+  when: inventory_hostname in groups['control_plane']
+
+- name: Set join command (Control Plane)
+  ansible.builtin.set_fact:
+    join_command: "{{ join_command_raw.stdout_lines[0] }}"
+  when: inventory_hostname in groups['control_plane']
+
+- name: Join cluster (Workers)
+  ansible.builtin.shell: "{{ hostvars['master-node'].join_command }} >> node_joined.txt"
+  args:
+    chdir: $HOME
+    creates: node_joined.txt
+  when: inventory_hostname in groups['workers']
+
+- name: Label worker node1
+  ansible.builtin.shell: kubectl label nodes worker-01 kubernetes.io/role=worker-01
+  when: inventory_hostname in groups['control_plane']
+
+- name: Label worker node2
+  ansible.builtin.shell: kubectl label nodes worker-02 kubernetes.io/role=worker-02
+  when: inventory_hostname in groups['control_plane']

@@ -1,0 +1,3 @@
+{% raw %}
+{{ containerd_default_config.stdout | replace('SystemdCgroup = false', 'SystemdCgroup = true') }}
+{% endraw %}

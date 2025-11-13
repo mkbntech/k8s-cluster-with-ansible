@@ -1,0 +1,16 @@
+---
+# handlers file for setup-kuberntes-cluster
+- name: update_containerd_config_to_use_systemd
+  ansible.builtin.template:
+    src: containerd_config_systemd.j2
+    dest: /etc/containerd/config.toml
+
+- name: restart_containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+
+- name: enable_containerd_on_boot
+  ansible.builtin.systemd:
+    name: containerd
+    enabled: yes
