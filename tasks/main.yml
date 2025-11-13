@@ -104,7 +104,7 @@
     install_recommends: false
 
 - name: Initialize the cluster (Control Plane)
-  ansible.builtin.shell: kubeadm init --apiserver-advertise-address=192.168.122.101 --pod-network-cidr 192.168.0.0/16 >> cluster_initialized.txt
+  ansible.builtin.shell: kubeadm init --apiserver-advertise-address=192.168.122.101 --pod-network-cidr=10.244.0.0/16 >> cluster_initialized.txt
   when: inventory_hostname in groups['control_plane']
   args:
     chdir: $HOME
